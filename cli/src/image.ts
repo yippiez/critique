@@ -8,7 +8,6 @@ import {
   renderFrameToImage,
   renderFrameToPaginatedImages,
   trimTrailingEmptyLines,
-  calculateFrameLayout,
   type RenderImageOptions,
   type RenderPaginatedOptions,
   type PaginatedRenderResult,
@@ -49,46 +48,6 @@ export interface RenderResult {
   totalLines: number
   /** Number of images generated */
   imageCount: number
-}
-
-export interface OgImageOptions {
-  /** Theme name for colors (default: "github-light") */
-  themeName?: string
-  /** Image width in pixels (default: 1200) */
-  width?: number
-  /** Image height in pixels (default: 630) */
-  height?: number
-  /** Font size in pixels (default: 20) */
-  fontSize?: number
-  /** Line height multiplier (default: 1.5) */
-  lineHeight?: number
-  /** Output format: webp, png, or jpeg (default: png) */
-  format?: "webp" | "png" | "jpeg"
-  /** Quality for lossy formats 0-100 (default: 90) */
-  quality?: number
-}
-
-export interface OgImageLayout {
-  /** Total lines available in the frame */
-  totalLines: number
-  /** Number of lines that fit in the image */
-  visibleLines: number
-  /** Maximum lines that could fit based on calculations */
-  maxLines: number
-  /** Image dimensions */
-  width: number
-  height: number
-  /** Padding values */
-  paddingX: number
-  paddingY: number
-  /** Line height in pixels */
-  lineHeightPx: number
-  /** Available height for content */
-  availableHeight: number
-  /** Actual content height (visibleLines * lineHeightPx) */
-  contentHeight: number
-  /** Unused vertical space at the bottom */
-  unusedHeight: number
 }
 
 // ============================================================================
@@ -219,131 +178,6 @@ export async function renderReviewToImages(
 
   // Convert frame to images
   return renderFrameToImages(frame, {
-    ...options,
-    themeName,
-  })
-}
-
-// ============================================================================
-// OG Image Generation
-// ============================================================================
-
-/**
- * Calculate the layout for an OG image without rendering.
- * Useful for testing and debugging layout issues.
- *
- * @param frame - CapturedFrame from opentui test renderer
- * @param options - OG image options
- * @returns Layout information
- */
-export function calculateOgImageLayout(
-  frame: CapturedFrame,
-  options: OgImageOptions = {}
-): OgImageLayout {
-  const {
-    width = 1200,
-    height = 630,
-    fontSize = 20,
-    lineHeight = 1.5,
-  } = options
-
-  const paddingY = 20
-  const paddingX = 24
-
-  const layout = calculateFrameLayout(frame, {
-    fontSize,
-    lineHeight,
-    paddingY,
-    height,
-  })
-
-  return {
-    totalLines: layout.totalLines,
-    visibleLines: layout.visibleLines,
-    maxLines: Math.floor(layout.availableHeight / layout.lineHeightPx),
-    width,
-    height,
-    paddingX,
-    paddingY,
-    lineHeightPx: layout.lineHeightPx,
-    availableHeight: layout.availableHeight,
-    contentHeight: layout.contentHeight,
-    unusedHeight: layout.availableHeight - layout.contentHeight,
-  }
-}
-
-/**
- * Render a CapturedFrame to a single OG image (1200x630 by default).
- * Takes only the first N lines that fit within the fixed height.
- *
- * @param frame - CapturedFrame from opentui test renderer
- * @param options - OG image options
- * @returns Promise with image buffer
- */
-export async function renderFrameToOgImage(
-  frame: CapturedFrame,
-  options: OgImageOptions = {}
-): Promise<Buffer> {
-  const {
-    themeName = "github-light",
-    width = 1200,
-    height = 630,
-    fontSize = 22,
-    lineHeight = 1.5,
-    format = "png",
-    quality = 90,
-  } = options
-
-  const theme = resolveTheme(themeName)
-
-  return renderFrameToImage(frame, {
-    width,
-    height,
-    fontSize,
-    lineHeight,
-    paddingX: 24,
-    paddingY: 20,
-    format,
-    quality,
-    theme,
-  })
-}
-
-/**
- * Render a git diff to an OG image (1200x630 by default).
- * Shows the first few lines of the diff that fit within the image.
- *
- * @param diffContent - Raw git diff string
- * @param options - OG image and rendering options
- * @returns Promise with image buffer
- */
-export async function renderDiffToOgImage(
-  diffContent: string,
-  options: OgImageOptions & { cols?: number; stabilizeMs?: number } = {}
-): Promise<Buffer> {
-  const { renderDiffToFrame } = await import("./web-utils.js")
-
-  const width = options.width ?? 1200
-  const fontSize = options.fontSize ?? 20
-  const paddingX = 24
-  const themeName = options.themeName ?? "github-light"
-
-  // Calculate cols that fit within content width
-  // Monospace char width ≈ fontSize * 0.6
-  const contentWidth = width - paddingX * 2
-  const charWidth = fontSize * 0.6
-  const cols = options.cols ?? Math.floor(contentWidth / charWidth)
-
-  // Render diff to captured frame
-  const frame = await renderDiffToFrame(diffContent, {
-    cols,
-    maxRows: 200,
-    themeName,
-    stabilizeMs: options.stabilizeMs,
-  })
-
-  // Convert frame to OG image
-  return renderFrameToOgImage(frame, {
     ...options,
     themeName,
   })

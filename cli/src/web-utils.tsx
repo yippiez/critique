@@ -1,6 +1,6 @@
-// Web preview generation utilities for uploading diffs to critique.work.
-// Renders diff components using opentui test renderer, converts to HTML with responsive layout,
-// and uploads desktop/mobile versions for shareable diff viewing.
+// Local diff/review rendering utilities.
+// Renders diff and review components using the opentui test renderer, then converts the
+// captured frames to HTML for local image/PDF export.
 
 import { exec } from "child_process"
 import { promisify } from "util"
@@ -12,12 +12,8 @@ import { buildDirectoryTree } from "./directory-tree.js"
 import type { BoxRenderable, CapturedFrame, CapturedLine, RootRenderable, CliRenderer } from "@opentuah/core"
 import { DiffRenderable } from "@opentuah/core"
 import type { IndexedHunk, ReviewYaml } from "./review/types.js"
-import { loadStoredLicenseKey, loadOrCreateOwnerSecret } from "./license.js"
 
 const execAsync = promisify(exec)
-
-// Worker URL for uploading HTML previews
-export const WORKER_URL = process.env.CRITIQUE_WORKER_URL || "https://critique.work"
 
 export interface CaptureOptions {
   cols: number
@@ -28,51 +24,9 @@ export interface CaptureOptions {
   wrapMode?: "word" | "char" | "none"
   /** Force split or unified view mode, bypassing auto-detection */
   viewMode?: "split" | "unified"
-  /** Show privacy/expiry notice block at top (default: false, enabled for web uploads) */
-  showNotice?: boolean
   /** How long to wait for async rendering (tree-sitter) to stabilize.
-   *  Default: 500ms for interactive TUI, use 100ms for batch/web mode. */
+   *  Default: 500ms for interactive TUI, use 100ms for batch mode. */
   stabilizeMs?: number
-}
-
-export interface UploadResult {
-  url: string
-  id: string
-  ogImageUrl?: string
-  expiresInDays?: number | null
-}
-
-function renderNoticeBlock(options: {
-  mutedColor: string
-  showExpiry: boolean
-}) {
-  const buyUrl = `${WORKER_URL}/buy`
-  return (
-    <box style={{ flexDirection: "column", paddingBottom: 1, paddingLeft: 1 }}>
-      <box style={{ flexDirection: "row" }}>
-        <text fg={options.mutedColor}>This URL is private - only people with the link can access it.</text>
-      </box>
-      <box style={{ flexDirection: "row" }}>
-        <text fg={options.mutedColor}>Use </text>
-        <text fg={options.mutedColor}>critique unpublish {"<url>"}</text>
-        <text fg={options.mutedColor}> to delete.</text>
-      </box>
-      {options.showExpiry ? (
-        <box style={{ flexDirection: "row" }}>
-          <text fg={options.mutedColor}>This page will expire in 7 days. </text>
-          <text fg={options.mutedColor}>Get unlimited links: </text>
-          <text fg={options.mutedColor}>{buyUrl}</text>
-        </box>
-      ) : null}
-    </box>
-  )
-}
-
-function shouldShowExpiryNotice(): boolean {
-  if (process.env.CRITIQUE_SHOW_EXPIRY === "1") {
-    return true
-  }
-  return !loadStoredLicenseKey()
 }
 
 /**
@@ -254,9 +208,6 @@ async function renderDiffToFrameWithSectionPositions(
   const webText = rgbaToHex(webTheme.text)
   const webMuted = rgbaToHex(webTheme.textMuted)
 
-  const showExpiryNotice = shouldShowExpiryNotice()
-  const showNotice = options.showNotice === true
-
   // Create the diff view component
   // NOTE: No height: "100%" - let content determine its natural height
   function WebApp() {
@@ -267,13 +218,6 @@ async function renderDiffToFrameWithSectionPositions(
           backgroundColor: webBg,
         }}
       >
-        {showNotice
-          ? renderNoticeBlock({
-              mutedColor: webMuted,
-              showExpiry: showExpiryNotice,
-            })
-          : null}
-
         <box style={{ marginBottom: 2 }}>
           <DirectoryTreeView files={treeFiles} themeName={themeName} />
         </box>
@@ -484,14 +428,6 @@ export function extractTreeFilePath(lineText: string): string | null {
   return match[1].trim()
 }
 
-function escapeHtmlAttribute(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-}
-
 /**
  * Build line-indexed anchors from file section layout positions.
  * This avoids regex detection on rendered text, which can produce
@@ -515,214 +451,6 @@ export function buildAnchorMap(
   }
 
   return anchors
-}
-
-// CSS for file section anchors — injected via extraCss hook.
-// Clicking a file link copies the filename to clipboard and updates the URL hash.
-const SECTION_ANCHOR_CSS = `
-  .file-section { scroll-margin-top: 16px; }
-  .file-link { color: inherit; text-decoration: none; cursor: copy; }
-  .file-link:hover { text-decoration: underline; }
-  .tree-file-link { color: inherit; text-decoration: none; }
-  .tree-file-link:hover { text-decoration: underline; }
-`
-
-// JS: scroll to hash fragment on page load + click-to-copy filename on .file-link click.
-// On click: copies the filename text to clipboard and updates the URL hash.
-const SECTION_ANCHOR_JS = `
-  // Scroll to hash on page load
-  if (location.hash) {
-    var el = document.getElementById(location.hash.slice(1));
-    if (el) setTimeout(function () { el.scrollIntoView({ behavior: 'smooth' }) }, 100);
-  }
-
-  // Click file link: copy filename to clipboard + update URL hash
-  document.addEventListener('click', function (e) {
-    var link = e.target.closest('.file-link');
-    if (!link) return;
-    e.preventDefault();
-    var text = link.textContent;
-    var section = link.closest('.file-section');
-    if (section && section.id) history.replaceState(null, '', '#' + section.id);
-    navigator.clipboard.writeText(text);
-  });
-`
-
-/**
- * Capture diff and convert to HTML using test renderer
- */
-export async function captureToHtml(
-  diffContent: string,
-  options: CaptureOptions
-): Promise<string> {
-  const { frameToHtmlDocument } = await import("./ansi-html.js")
-
-  // Render diff to captured frame (with notice for web uploads)
-  // and collect exact section line positions from layout metadata.
-  const { frame, sectionPositions, treeFileOrder } = await renderDiffToFrameWithSectionPositions(
-    diffContent,
-    { ...options, showNotice: true },
-  )
-  const anchors = buildAnchorMap(sectionPositions)
-  const anchorIdByFileIndex = new Map<number, string>()
-  for (const section of sectionPositions) {
-    const anchor = anchors.get(section.lineIndex)
-    if (anchor) {
-      anchorIdByFileIndex.set(section.fileIndex, anchor.id)
-    }
-  }
-  const treeAnchorOrder = treeFileOrder.map((fileIndex) => anchorIdByFileIndex.get(fileIndex) ?? null)
-
-  // Get theme colors for HTML output
-  const theme = getResolvedTheme(options.themeName)
-  const backgroundColor = rgbaToHex(theme.background)
-  const textColor = rgbaToHex(theme.text)
-
-  // Check if theme was explicitly set (not default)
-  const { themeNames, defaultThemeName } = await import("./themes.js")
-  const customTheme = options.themeName !== defaultThemeName && themeNames.includes(options.themeName)
-
-  // Build renderLine callback that:
-  // 1. Wraps file header lines with anchor IDs and clickable links
-  // 2. Adds data-anchor="file:line" on diff lines so the agentation widget
-  //    can capture which exact diff line an annotation refers to
-  //
-  // sectionPositions is sorted by lineIndex (ascending). We track currentFile
-  // by advancing a pointer as we iterate lines.
-  const sortedSections = [...sectionPositions].sort((a, b) => a.lineIndex - b.lineIndex)
-  let sectionPtr = 0
-  let currentFile: string | null = null
-  let treeLinkPtr = 0
-
-  const renderLineCallback = (defaultHtml: string, line: CapturedLine, lineIndex: number) => {
-    // Advance current file when we pass a section boundary
-    while (sectionPtr < sortedSections.length && lineIndex >= sortedSections[sectionPtr]!.lineIndex) {
-      currentFile = sortedSections[sectionPtr]!.fileName
-      sectionPtr++
-    }
-
-    let html = defaultHtml
-
-    if (currentFile === null && treeLinkPtr < treeAnchorOrder.length) {
-      const lineText = line.spans.map((span) => span.text).join("")
-      const treePath = extractTreeFilePath(lineText)
-      if (treePath) {
-        const targetAnchor = treeAnchorOrder[treeLinkPtr]
-        treeLinkPtr++
-
-        if (targetAnchor) {
-          const escapedPath = escapeHtmlAttribute(treePath)
-          html = html.replace(
-            `>${escapedPath}</span>`,
-            `><a href="#${targetAnchor}" class="tree-file-link">${escapedPath}</a></span>`,
-          )
-        }
-      }
-    }
-
-    // File-section header: add id + clickable link
-    const anchor = anchors.get(lineIndex)
-    if (anchor) {
-      html = html.replace(
-        '<div class="line">',
-        `<div id="${anchor.id}" class="line file-section">`,
-      )
-      const escapedLabel = escapeHtmlAttribute(anchor.label)
-      html = html.replace(
-        `>${escapedLabel}</span>`,
-        `><a href="#${anchor.id}" class="file-link">${escapedLabel}</a></span>`,
-      )
-    }
-
-    // Diff line: extract line number from spans and add data-anchor.
-    // Diff lines start with spans like: " " "26" " " — the line number
-    // is the first span whose trimmed text is purely numeric.
-    if (currentFile && !anchor) {
-      const lineNum = extractLineNumber(line)
-      if (lineNum) {
-        const anchorValue = `${currentFile}:${lineNum}`
-        const safeAnchor = escapeHtmlAttribute(anchorValue)
-        html = html.replace(
-          '<div class="line">',
-          `<div class="line" data-anchor="${safeAnchor}">`,
-        )
-      }
-    }
-
-    return html
-  }
-
-  return frameToHtmlDocument(frame, {
-    backgroundColor,
-    textColor,
-    autoTheme: !customTheme,
-    title: options.title,
-    renderLine: renderLineCallback,
-    extraCss: anchors.size > 0 ? SECTION_ANCHOR_CSS : undefined,
-    extraJs: anchors.size > 0 ? SECTION_ANCHOR_JS : undefined,
-  })
-}
-
-/**
- * Generate desktop and mobile HTML versions in parallel, with optional OG image
- */
-export async function captureResponsiveHtml(
-  diffContent: string,
-  options: {
-    desktopCols: number
-    mobileCols: number
-    baseRows: number
-    themeName: string
-    title?: string
-    /** Stabilization timeout for tree-sitter highlighting (default: 100ms for web) */
-    stabilizeMs?: number
-    /** Skip OG image generation for faster URL delivery */
-    skipOgImage?: boolean
-  }
-): Promise<{ htmlDesktop: string; htmlMobile: string; ogImage: Buffer | null }> {
-  // Max row values - content-fitting will grow to actual content size
-  // These act as upper bounds to prevent runaway memory usage
-  const desktopRows = Math.max(options.baseRows * 3, 5000)
-  const mobileRows = Math.max(Math.ceil(desktopRows * (options.desktopCols / options.mobileCols)), 10000)
-  // With deterministic isHighlighting detection, stabilizeMs is just a safety cap.
-  // The function exits instantly when highlighting completes, so 2000ms is fine.
-  const stabilizeMs = options.stabilizeMs ?? 2000
-
-  // Run all renders in parallel: desktop HTML, mobile HTML, and OG image
-  const ogImagePromise = options.skipOgImage
-    ? Promise.resolve(null)
-    : (async (): Promise<Buffer | null> => {
-        try {
-          const { renderDiffToOgImage } = await import("./image.js")
-          return await renderDiffToOgImage(diffContent, {
-            // Always use github-light for OG images (no dark mode support in OG protocol)
-            themeName: "github-light",
-            stabilizeMs,
-          })
-        } catch {
-          return null
-        }
-      })()
-
-  const [htmlDesktop, htmlMobile, ogImage] = await Promise.all([
-    captureToHtml(diffContent, {
-      cols: options.desktopCols,
-      maxRows: desktopRows,
-      themeName: options.themeName,
-      title: options.title,
-      stabilizeMs,
-    }),
-    captureToHtml(diffContent, {
-      cols: options.mobileCols,
-      maxRows: mobileRows,
-      themeName: options.themeName,
-      title: options.title,
-      stabilizeMs,
-    }),
-    ogImagePromise,
-  ])
-
-  return { htmlDesktop, htmlMobile, ogImage }
 }
 
 export interface ReviewRenderOptions extends CaptureOptions {
@@ -755,14 +483,10 @@ export async function renderReviewToFrame(
 
   const theme = getResolvedTheme(themeName)
   const webBg = theme.background
-  const webText = rgbaToHex(theme.text)
-  const webMuted = rgbaToHex(theme.textMuted)
-  const showExpiryNotice = shouldShowExpiryNotice()
-  const showNotice = options.showNotice === true
 
   // Content-fitting: start small, double if clipped, shrink to fit
   let currentHeight = 100
-  
+
   const { renderer, renderOnce, resize } = await createTestRenderer({
     width: options.cols,
     height: currentHeight,
@@ -779,12 +503,6 @@ export async function renderReviewToFrame(
           backgroundColor: webBg,
         }}
       >
-        {showNotice
-          ? renderNoticeBlock({
-              mutedColor: webMuted,
-              showExpiry: showExpiryNotice,
-            })
-          : null}
         <ReviewAppView
           hunks={options.hunks}
           reviewData={options.reviewData}
@@ -843,185 +561,6 @@ export async function renderReviewToFrame(
 }
 
 /**
- * Capture review and convert to HTML using test renderer
- */
-export async function captureReviewToHtml(
-  options: ReviewRenderOptions
-): Promise<string> {
-  const { frameToHtmlDocument } = await import("./ansi-html.js")
-
-  // Render review to captured frame (with notice for web uploads)
-  const frame = await renderReviewToFrame({ ...options, showNotice: true })
-
-  // Get theme colors for HTML output
-  const theme = getResolvedTheme(options.themeName)
-  const backgroundColor = rgbaToHex(theme.background)
-  const textColor = rgbaToHex(theme.text)
-
-  // Check if theme was explicitly set (not default)
-  const { themeNames, defaultThemeName } = await import("./themes.js")
-  const customTheme = options.themeName !== defaultThemeName && themeNames.includes(options.themeName)
-
-  return frameToHtmlDocument(frame, {
-    backgroundColor,
-    textColor,
-    autoTheme: !customTheme,
-    title: options.title,
-  })
-}
-
-/**
- * Generate desktop and mobile HTML versions for review in parallel
- */
-export async function captureReviewResponsiveHtml(
-  options: {
-    hunks: IndexedHunk[]
-    reviewData: ReviewYaml | null
-    desktopCols: number
-    mobileCols: number
-    baseRows: number
-    themeName: string
-    title?: string
-    /** Stabilization timeout for tree-sitter highlighting (default: 100ms for web) */
-    stabilizeMs?: number
-    /** Skip OG image generation for faster URL delivery */
-    skipOgImage?: boolean
-  }
-): Promise<{ htmlDesktop: string; htmlMobile: string; ogImage: Buffer | null }> {
-  // Max row values - content-fitting will grow to actual content size
-  // These act as upper bounds to prevent runaway memory usage
-  const desktopRows = Math.max(options.baseRows * 3, 5000)
-  const mobileRows = Math.max(Math.ceil(desktopRows * (options.desktopCols / options.mobileCols)), 10000)
-  const stabilizeMs = options.stabilizeMs ?? 2000
-
-  // Generate OG image from first few hunks' raw diff (in parallel with HTML renders)
-  const ogImagePromise = options.skipOgImage
-    ? Promise.resolve(null)
-    : (async (): Promise<Buffer | null> => {
-        try {
-          const { renderDiffToOgImage } = await import("./image.js")
-          const diffContent = options.hunks
-            .slice(0, 5)
-            .map((h) => h.rawDiff)
-            .join("\n")
-          if (!diffContent) return null
-          return await renderDiffToOgImage(diffContent, {
-            themeName: "github-light",
-            stabilizeMs,
-          })
-        } catch {
-          return null
-        }
-      })()
-
-  const [htmlDesktop, htmlMobile, ogImage] = await Promise.all([
-    captureReviewToHtml({
-      hunks: options.hunks,
-      reviewData: options.reviewData,
-      cols: options.desktopCols,
-      maxRows: desktopRows,
-      themeName: options.themeName,
-      title: options.title,
-      stabilizeMs,
-    }),
-    captureReviewToHtml({
-      hunks: options.hunks,
-      reviewData: options.reviewData,
-      cols: options.mobileCols,
-      maxRows: mobileRows,
-      themeName: options.themeName,
-      title: options.title,
-      stabilizeMs,
-    }),
-    ogImagePromise,
-  ])
-
-  return { htmlDesktop, htmlMobile, ogImage }
-}
-
-/**
- * Upload HTML to the critique.work worker
- */
-export async function uploadHtml(
-  htmlDesktop: string,
-  htmlMobile: string,
-  ogImage?: Buffer | null,
-  patch?: string,
-): Promise<UploadResult> {
-  const body: Record<string, string> = { 
-    html: htmlDesktop, 
-    htmlMobile,
-  }
-
-  // Include OG image as base64 if provided
-  if (ogImage) {
-    body.ogImage = ogImage.toString("base64")
-  }
-
-  // Include raw unified diff (patch) for programmatic access
-  if (patch) {
-    body.patch = patch
-  }
-
-  const licenseKey = loadStoredLicenseKey()
-  const ownerSecret = loadOrCreateOwnerSecret()
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-Critique-Owner-Secret": ownerSecret,
-  }
-  if (licenseKey) {
-    headers["X-Critique-License"] = licenseKey
-  }
-
-  const response = await fetch(`${WORKER_URL}/upload`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  })
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Upload failed: ${error}`)
-  }
-
-  const result = (await response.json()) as {
-    id: string
-    url: string
-    ogImageUrl?: string
-    expiresInDays?: number | null
-  }
-  return result
-}
-
-/**
- * Upload OG image to an existing diff via PATCH.
- * Called in the background after the initial upload returns the URL.
- * Uses a 5s timeout to prevent hanging the process after URL is printed.
- */
-export async function uploadOgImage(id: string, ogImage: Buffer): Promise<void> {
-  const licenseKey = loadStoredLicenseKey()
-  const ownerSecret = loadOrCreateOwnerSecret()
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "X-Critique-Owner-Secret": ownerSecret,
-  }
-  if (licenseKey) {
-    headers["X-Critique-License"] = licenseKey
-  }
-
-  const response = await fetch(`${WORKER_URL}/upload/${id}/og`, {
-    method: "PATCH",
-    headers,
-    body: JSON.stringify({ ogImage: ogImage.toString("base64") }),
-    signal: AbortSignal.timeout(5000),
-  })
-
-  if (!response.ok) {
-    throw new Error(`OG image PATCH failed: ${response.status}`)
-  }
-}
-
-/**
  * Open a URL in the default browser
  */
 export async function openInBrowser(url: string): Promise<void> {
@@ -1057,67 +596,5 @@ export function cleanupTempFile(filePath: string): void {
     fs.unlinkSync(filePath)
   } catch {
     // Ignore cleanup errors
-  }
-}
-
-export interface DeleteResult {
-  success: boolean
-  message: string
-}
-
-/**
- * Extract diff ID from URL or raw ID string.
- * Supports: https://critique.work/v/abc123, critique.work/v/abc123, /v/abc123, abc123
- */
-export function extractDiffId(urlOrId: string): string | null {
-  const trimmed = urlOrId.trim()
-  
-  // Try to extract from URL path
-  const urlMatch = trimmed.match(/\/v\/([a-f0-9]{16,32})(?:\?|$|#)?/i)
-  if (urlMatch && urlMatch[1]) {
-    return urlMatch[1].toLowerCase()
-  }
-  
-  // Check if it's a raw hex ID
-  if (/^[a-f0-9]{16,32}$/i.test(trimmed)) {
-    return trimmed.toLowerCase()
-  }
-  
-  return null
-}
-
-/**
- * Delete a published diff by URL or ID.
- * Requires the owner secret to match what was stored on upload.
- */
-export async function deleteUpload(urlOrId: string): Promise<DeleteResult> {
-  const id = extractDiffId(urlOrId)
-  if (!id) {
-    return {
-      success: false,
-      message: "Invalid URL or ID format. Expected a critique.work URL or 16-32 character hex ID.",
-    }
-  }
-
-  const ownerSecret = loadOrCreateOwnerSecret()
-  
-  const response = await fetch(`${WORKER_URL}/v/${id}`, {
-    method: "DELETE",
-    headers: {
-      "X-Critique-Owner-Secret": ownerSecret,
-    },
-  })
-
-  if (response.ok) {
-    return {
-      success: true,
-      message: "Diff deleted successfully.",
-    }
-  }
-
-  const result = await response.json().catch(() => ({ error: "Unknown error" })) as { error?: string }
-  return {
-    success: false,
-    message: result.error || `Failed to delete (${response.status})`,
   }
 }

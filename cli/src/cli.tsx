@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // CLI entrypoint for the critique diff viewer.
-// Provides TUI diff viewing, AI-powered review generation, and web preview upload.
-// Commands: default (diff), review (AI analysis), web (HTML upload), pick (cherry-pick files).
+// Provides TUI diff viewing, AI-powered review generation, and local image/PDF export.
+// Commands: default (diff), review (AI analysis), pick (cherry-pick files).
 
 // Must be first import: patches process.stdout.columns/rows for Bun compiled binaries
 // where they incorrectly return 0 instead of actual terminal dimensions.
@@ -40,7 +40,6 @@ import Dropdown from "./dropdown.js";
 import { debounce } from "./utils.js";
 import { DiffView, DirectoryTreeView } from "./components/index.js";
 import { logger } from "./logger.js";
-import { saveStoredLicenseKey } from "./license.js";
 import {
   buildGitCommand,
   ensureGitRepo,
@@ -85,12 +84,6 @@ import {
   persistedState,
 } from "./store.js";
 
-// Web options for review mode
-interface ReviewWebOptions {
-  web: boolean;
-  open?: boolean;
-}
-
 interface ReviewPdfOptions {
   pdf: boolean;
   filename?: string;
@@ -102,7 +95,6 @@ interface ReviewPdfOptions {
 // Review mode options
 interface ReviewModeOptions {
   sessionIds?: string[];
-  webOptions?: ReviewWebOptions;
   pdfOptions?: ReviewPdfOptions;
   model?: string;
   json?: boolean;
@@ -115,7 +107,7 @@ async function runReviewMode(
   options: ReviewModeOptions = {},
   reviewOptions?: { isDefaultMode?: boolean; diffOptions?: Pick<GitCommandOptions, "context" | "filter" | "positionalFilters"> },
 ) {
-  const { sessionIds, webOptions, pdfOptions, model, json } = options;
+  const { sessionIds, pdfOptions, model, json } = options;
   const { tmpdir } = await import("os");
   const { join } = await import("path");
   const pc = await import("picocolors");
@@ -522,8 +514,8 @@ async function runReviewMode(
       { model },
     );
 
-    // Non-interactive modes (web/json or pdf): wait for full generation first
-    if (webOptions?.web || pdfOptions) {
+    // Non-interactive modes (pdf): wait for full generation first
+    if (pdfOptions) {
       try {
         await sessionPromise;
         const log = ensureAnalysisLog();
@@ -554,93 +546,6 @@ async function runReviewMode(
         if (acpClient) await acpClient.close();
         try { fs.unlinkSync(yamlPath); } catch (e) { logger.debug("Failed to cleanup yaml file", { error: e }); }
         if (json) console.log(JSON.stringify({ error: errorMessage }));
-        process.exit(1);
-      }
-    }
-
-    // Web mode: generate HTML and upload
-    if (webOptions?.web) {
-      // Import web utilities
-      const {
-        captureReviewResponsiveHtml,
-        uploadHtml,
-        openInBrowser,
-        cleanupTempFile,
-      } = await import("./web-utils.js");
-
-      // Read review data from YAML
-      const reviewData = readReviewYaml(yamlPath);
-      if (!reviewData) {
-        throw new Error("No review data found");
-      }
-
-      // For web, always use default theme (with auto dark/light inversion) unless explicitly overridden
-      const themeName = defaultThemeName;
-
-      // Calculate rows needed based on hunks
-      const totalLines = hunks.reduce((sum, h) => sum + h.lines.length, 0);
-      const baseRows = Math.max(200, totalLines * 2 + 100);
-
-      const webSpinner = clack.spinner(out);
-      webSpinner.start("Generating web preview...");
-
-      try {
-        const { htmlDesktop, htmlMobile, ogImage } = await captureReviewResponsiveHtml({
-          hunks,
-          reviewData,
-          desktopCols: 230,
-          mobileCols: 100,
-          baseRows,
-          themeName,
-        });
-
-        // Clean up temp file
-        cleanupTempFile(yamlPath);
-        if (acpClient) await acpClient.close();
-
-        webSpinner.message("Uploading...");
-        const result = await uploadHtml(htmlDesktop, htmlMobile, ogImage);
-        webSpinner.stop("Uploaded");
-
-        clack.log.success(`Preview URL: ${result.url}`, out);
-        clack.log.info(formatPreviewExpiry(result.expiresInDays), out);
-        if (typeof result.expiresInDays === "number") {
-          clack.log.info("Get unlimited links and support the project: https://critique.work/buy", out);
-        }
-        clack.outro("", out);
-        if (json) {
-          // Aggregate per-file stats from hunks
-          const fileStatsMap = new Map<string, { added: number; removed: number }>();
-          for (const hunk of hunks) {
-            let entry = fileStatsMap.get(hunk.filename);
-            if (!entry) {
-              entry = { added: 0, removed: 0 };
-              fileStatsMap.set(hunk.filename, entry);
-            }
-            for (const line of hunk.lines) {
-              if (line.startsWith("+")) entry.added++;
-              if (line.startsWith("-")) entry.removed++;
-            }
-          }
-          const fileStats = Array.from(fileStatsMap.entries()).map(([filename, stats]) => ({
-            filename,
-            added: stats.added,
-            removed: stats.removed,
-          }));
-          console.log(JSON.stringify({ url: result.url, id: result.id, files: fileStats }));
-        }
-
-        if (webOptions.open) {
-          await openInBrowser(result.url);
-        }
-        process.exit(0);
-      } catch (error: any) {
-        webSpinner.stop("Failed");
-        cleanupTempFile(yamlPath);
-        if (acpClient) await acpClient.close();
-        clack.log.error(`Failed to generate web preview: ${error.message}`, out);
-        clack.outro("", out);
-        if (json) console.log(JSON.stringify({ error: error.message }));
         process.exit(1);
       }
     }
@@ -814,7 +719,6 @@ async function runReviewMode(
 // Resume mode options
 interface ResumeModeOptions {
   reviewId?: string;
-  web?: boolean;
   pdf?: boolean;
   pdfFilename?: string;
   pdfPageSize?: string;
@@ -975,55 +879,6 @@ async function runResumeMode(options: ResumeModeOptions) {
 
   clack.log.info(`Loading: ${review.title}`);
 
-  // Web mode: generate HTML and upload
-  if (options.web) {
-    const {
-      captureReviewResponsiveHtml,
-      uploadHtml,
-      openInBrowser,
-    } = await import("./web-utils.js");
-
-    // For web, always use default theme (with auto dark/light inversion) unless explicitly overridden
-    const themeName = defaultThemeName;
-    const totalLines = review.hunks.reduce((sum, h) => sum + h.lines.length, 0);
-    const baseRows = Math.max(200, totalLines * 2 + 100);
-
-    const webSpinner = clack.spinner();
-    webSpinner.start("Generating web preview...");
-
-    try {
-      const { htmlDesktop, htmlMobile, ogImage } = await captureReviewResponsiveHtml({
-        hunks: review.hunks,
-        reviewData: review.reviewYaml,
-        desktopCols: 230,
-        mobileCols: 100,
-        baseRows,
-        themeName,
-      });
-
-      webSpinner.message("Uploading...");
-      const result = await uploadHtml(htmlDesktop, htmlMobile, ogImage);
-      webSpinner.stop("Uploaded");
-
-      clack.log.success(`Preview URL: ${result.url}`);
-      clack.log.info(formatPreviewExpiry(result.expiresInDays));
-      if (typeof result.expiresInDays === "number") {
-        clack.log.info("Get unlimited links and support the project: https://critique.work/buy");
-      }
-      clack.outro("");
-
-      if (options.open) {
-        await openInBrowser(result.url);
-      }
-      process.exit(0);
-    } catch (error: any) {
-      webSpinner.stop("Failed");
-      clack.log.error(`Failed to generate web preview: ${error.message}`);
-      clack.outro("");
-      process.exit(1);
-    }
-  }
-
   // PDF mode: render to PDF and exit
   if (options.pdf) {
     const { renderReviewToFrame } = await import("./web-utils.js");
@@ -1103,115 +958,6 @@ async function runResumeMode(options: ResumeModeOptions) {
       />
     </ErrorBoundary>
   );
-}
-
-// Web mode handler - receives already-cleaned diff content
-interface WebModeOptions {
-  title?: string;
-  open?: boolean;
-  cols?: number;
-  mobileCols?: number;
-  theme?: string;
-  json?: boolean;
-}
-
-async function runWebMode(
-  diffContent: string,
-  options: WebModeOptions
-) {
-  const {
-    captureResponsiveHtml,
-    uploadHtml,
-    uploadOgImage,
-    openInBrowser,
-  } = await import("./web-utils.js");
-
-  // Use stderr for progress when --json is set, stdout otherwise
-  const log = options.json ? console.error.bind(console) : console.log.bind(console);
-
-  const desktopCols = options.cols || 230;
-  const mobileCols = options.mobileCols || 100;
-  // For web, always use default theme (with auto dark/light inversion) unless explicitly overridden via --theme
-  const themeName = options.theme && themeNames.includes(options.theme)
-    ? options.theme
-    : defaultThemeName;
-
-  // Calculate required rows from diff content
-  const { parsePatch } = await import("diff");
-  const files = parseGitDiffFiles(diffContent, parsePatch);
-  const baseRows = files.reduce((sum, file) => {
-    const diffLines = file.hunks.reduce((h, hunk) => h + hunk.lines.length, 0);
-    return sum + diffLines + 5; // header + margin per file
-  }, 100); // base padding
-
-  log("Converting to HTML...");
-
-  try {
-    // Render desktop + mobile HTML and OG image in parallel.
-    // Skip OG from initial upload — we'll PATCH it in the background
-    // after the URL is printed, so the user sees the URL faster.
-    const { htmlDesktop, htmlMobile, ogImage } = await captureResponsiveHtml(
-      diffContent,
-      { desktopCols, mobileCols, baseRows, themeName, title: options.title, skipOgImage: true }
-    );
-
-    log("Uploading...");
-
-    const result = await uploadHtml(htmlDesktop, htmlMobile, undefined, diffContent);
-
-    log(`\nPreview URL: ${result.url}`);
-    log(formatPreviewExpiry(result.expiresInDays));
-    if (typeof result.expiresInDays === "number") {
-      log("Get unlimited links and support the project: https://critique.work/buy");
-    }
-    if (options.json) {
-      const fileStats = files.map((file) => {
-        const { additions, deletions } = countChanges(file.hunks);
-        return {
-          filename: getFileName(file),
-          added: additions,
-          removed: deletions,
-        };
-      });
-      console.log(JSON.stringify({ url: result.url, id: result.id, files: fileStats }));
-    }
-
-    if (options.open) {
-      await openInBrowser(result.url);
-    }
-
-    // Generate and upload OG image in the background after URL is printed.
-    // The URL is already available — this just adds social media previews.
-    // Hard cap at 8s to prevent the process hanging after URL output.
-    const ogUpload = (async () => {
-      try {
-        const { renderDiffToOgImage } = await import("./image.js");
-        const ogImg = await renderDiffToOgImage(diffContent, {
-          themeName: "github-light",
-          stabilizeMs: 2000,
-        });
-        if (ogImg) {
-          await uploadOgImage(result.id, ogImg);
-        }
-      } catch {
-        // OG image generation failed — not critical, skip silently
-      }
-    })();
-
-    // Wait for OG upload with a hard timeout so the process always exits
-    await Promise.race([
-      ogUpload,
-      new Promise<void>(resolve => setTimeout(resolve, 8000)),
-    ]);
-    process.exit(0);
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error("Failed to generate web preview:", message);
-    if (options.json) {
-      console.log(JSON.stringify({ error: message }));
-    }
-    process.exit(1);
-  }
 }
 
 // PDF mode handler - receives already-cleaned diff content
@@ -1866,13 +1612,7 @@ export function App({ parsedFiles }: AppProps): React.ReactElement {
           <box flexGrow={1} />
           {copyToast ? (
             <text fg={mutedColor}>{copyToast}</text>
-          ) : (
-            <>
-              <text fg={mutedColor}>run with </text>
-              <text fg={textColor}><b>--web</b></text>
-              <text fg={mutedColor}> to share & collaborate</text>
-            </>
-          )}
+          ) : null}
         </box>
       )}
     </box>
@@ -2085,14 +1825,11 @@ cli
     description: "Filter files by glob pattern (can be used multiple times)",
   }))
   .option("--theme <name>", "Theme to use for rendering")
-  .option("--web [title]", "Generate web preview instead of TUI")
   .option("--pdf [filename]", "Generate PDF instead of TUI (default: <tmpdir>/critique-diff-*.pdf)")
   .option("--pdf-page-size <size>", "PDF page size: a4-landscape (default), a4-portrait, a3-landscape, letter-landscape, or WxH in points")
-  .option("--open", "Open in browser (with --web/--pdf)")
-  .option("--json", "Output JSON to stdout (with --web)")
+  .option("--open", "Open in viewer (with --pdf)")
   .option("--image", "Generate images instead of TUI (saved to temp directory)")
-  .option("--cols <cols>", "Desktop columns for web/image render (default: 240)")
-  .option("--mobile-cols <cols>", "Mobile columns for web render (default: 100)")
+  .option("--cols <cols>", "Columns for image render (default: 120)")
   .option("--stdin", "Read diff from stdin (for use as a pager)")
   .option("--scrollback", "Output to terminal scrollback instead of TUI (auto-enabled when non-TTY)")
   .action(async (base, head, options) => {
@@ -2175,29 +1912,11 @@ cli
     // Check for empty diff (except for --watch mode which may get content later)
     const shouldWatch = options.watch && !base && !head && !options.commit && !options.stdin;
     if (!cleanedDiff.trim() && !shouldWatch) {
-      // Use stderr for --json mode
-      const log = options.json ? console.error.bind(console) : console.log.bind(console);
-      log("No changes to display");
-      if (options.json) {
-        console.log(JSON.stringify({ error: "No changes to display" }));
-      }
+      console.log("No changes to display");
       process.exit(0);
     }
 
     // Dispatch to appropriate handler with diff content
-    if (options.web !== undefined) {
-      const title = typeof options.web === 'string' ? options.web : undefined;
-      await runWebMode(cleanedDiff, {
-        title,
-        open: options.open,
-        json: options.json,
-        cols: parseInt(options.cols) || 240,
-        mobileCols: parseInt(options.mobileCols) || 100,
-        theme: options.theme,
-      });
-      return;
-    }
-
     if (options.pdf !== undefined) {
       const filename = typeof options.pdf === 'string' ? options.pdf : undefined;
       await runPdfMode(cleanedDiff, {
@@ -2412,11 +2131,10 @@ cli
     items: { type: "string" },
     description: "Session ID(s) to include as context (can be repeated)",
   }))
-  .option("--web", "Generate web preview instead of TUI")
   .option("--pdf [filename]", "Generate PDF instead of TUI (default: <tmpdir>/critique-review-*.pdf)")
   .option("--pdf-page-size <size>", "PDF page size: a4-landscape (default), a4-portrait, a3-landscape, letter-landscape, or WxH in points")
-  .option("--open", "Open in browser/viewer (with --web/--pdf)")
-  .option("--json", "Output JSON to stdout (implies --web)")
+  .option("--open", "Open in viewer (with --pdf)")
+  .option("--json", "Output JSON to stdout")
   .option("--resume [id]", "Resume a previous review (shows select if no ID provided)")
   .action(async (base, head, options) => {
     ensureGitRepo();
@@ -2425,7 +2143,6 @@ cli
       if (options.resume !== undefined) {
         await runResumeMode({
           reviewId: typeof options.resume === "string" ? options.resume : undefined,
-          web: options.web,
           pdf: options.pdf !== undefined,
           pdfFilename: typeof options.pdf === 'string' ? options.pdf : undefined,
           pdfPageSize: options.pdfPageSize,
@@ -2456,9 +2173,6 @@ cli
         ? Array.isArray(options.session) ? options.session : [options.session]
         : undefined;
 
-      // --json implies --web
-      const useWeb = options.web || options.json;
-      const webOptions = useWeb ? { web: true, open: options.open } : undefined;
       const usePdf = options.pdf !== undefined;
       const pdfOptions = usePdf ? {
         pdf: true,
@@ -2469,7 +2183,6 @@ cli
       const isDefaultMode = !options.staged && !options.commit && !base && !head;
       await runReviewMode(gitCommand, agent, {
         sessionIds,
-        webOptions,
         pdfOptions,
         model: options.model,
         json: options.json,
@@ -2749,110 +2462,6 @@ cli
         `Error: ${error instanceof Error ? error.message : String(error)}`,
       );
       process.exit(1);
-    }
-  });
-
-cli
-  .command("web [base] [head]", "DEPRECATED: Use --web flag instead")
-  .option("--staged", "Show staged changes")
-  .option("--commit <ref>", "Show changes from a specific commit")
-  .option("--cols <cols>", "Number of columns for desktop rendering (default: 240)")
-  .option("--mobile-cols <cols>", "Number of columns for mobile rendering (default: 100)")
-  .option("--open", "Open in browser after generating")
-  .option("--context <lines>", "Number of context lines (default: 6)")
-  .option("--theme <name>", "Theme to use for rendering")
-  .option("--filter <pattern>", wrapJsonSchema<string[]>({
-    type: "array",
-    items: { type: "string" },
-    description: "Filter files by glob pattern (can be used multiple times)",
-  }))
-  .option("--title <title>", "HTML document title")
-  .action(async (base, head, options) => {
-    ensureGitRepo();
-    // Build git command and get diff
-    const gitCommand = buildGitCommand({
-      staged: options.staged,
-      commit: options.commit,
-      base,
-      head,
-      context: options.context,
-      filter: options.filter,
-      positionalFilters: options['--'],
-    });
-
-    const { stdout: gitDiff } = await execAsync(gitCommand, {
-      encoding: "utf-8",
-    });
-
-    // In default mode, append dirty submodule diffs
-    let fullWebDiff = gitDiff;
-    const isWebDefaultMode = !options.staged && !options.commit && !base && !head;
-    if (isWebDefaultMode) {
-      const dirtySubmodules = getDirtySubmodulePaths();
-      if (dirtySubmodules.length > 0) {
-        const subCmd = buildSubmoduleDiffCommand(dirtySubmodules, {
-          context: options.context,
-        });
-        try {
-          const { stdout: subDiff } = await execAsync(subCmd, { encoding: "utf-8" });
-          if (subDiff.trim()) {
-            fullWebDiff = fullWebDiff + "\n" + subDiff;
-          }
-        } catch {
-          // Submodule diff failed — skip
-        }
-      }
-
-      fullWebDiff = await filterCombinedDiffByPatterns(fullWebDiff, {
-        filter: options.filter,
-        positionalFilters: options['--'],
-      });
-    }
-
-    if (!fullWebDiff.trim()) {
-      console.log("No changes to display");
-      process.exit(0);
-    }
-
-    const cleanedDiff = stripSubmoduleHeaders(fullWebDiff);
-
-    await runWebMode(cleanedDiff, {
-      title: options.title,
-      open: options.open,
-      cols: parseInt(options.cols) || 240,
-      mobileCols: parseInt(options.mobileCols) || 100,
-      theme: options.theme,
-    });
-  });
-
-cli
-  .command("login <key>", "Store a Critique license key for unlimited links")
-  .action((key: string) => {
-    saveStoredLicenseKey(key)
-    process.stdout.write("Saved license key to ~/.critique/license.json\n")
-  });
-
-cli
-  .command("unpublish <url>", "Delete a published diff by URL or ID")
-  .action(async (url: string) => {
-    const { deleteUpload, extractDiffId } = await import("./web-utils.js")
-
-    const id = extractDiffId(url)
-    if (!id) {
-      process.stderr.write("Error: Invalid URL or ID format.\n")
-      process.stderr.write("Expected: https://critique.work/v/<id> or a 16-32 character hex ID\n")
-      process.exit(1)
-    }
-
-    process.stdout.write(`Deleting diff ${id}...\n`)
-
-    const result = await deleteUpload(url)
-
-    if (result.success) {
-      process.stdout.write(`${result.message}\n`)
-    } else {
-      process.stderr.write(`Error: ${result.message}\n`)
-      process.exit(1)
     }
   });
 

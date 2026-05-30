@@ -22,8 +22,6 @@ export interface ToHtmlOptions {
   autoTheme?: boolean
   /** HTML document title */
   title?: string
-  /** OG image URL for social media previews */
-  ogImageUrl?: string
   /** Custom line renderer - wraps or replaces the default <div class="line"> output per line.
    *  Generic hook: receives the default HTML, the captured line data, and the 0-based line index.
    *  Return a replacement HTML string. If not provided, the default <div class="line"> is used. */
@@ -200,17 +198,6 @@ export function frameToHtmlDocument(frame: CapturedFrame, options: ToHtmlOptions
   const cols = frame.cols
   const { html: content, spanCss } = frameToHtml(frame, options)
 
-  const ogTags = options.ogImageUrl ? '\n' + html`
-    <meta property="og:title" content="${escapeHtml(title)}">
-    <meta property="og:type" content="website">
-    <meta property="og:image" content="${escapeHtml(options.ogImageUrl)}">
-    <meta property="og:image:width" content="1200">
-    <meta property="og:image:height" content="630">
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="${escapeHtml(title)}">
-    <meta name="twitter:image" content="${escapeHtml(options.ogImageUrl)}">
-  ` : ''
-
   const autoThemeCss = options.autoTheme ? '\n' + html`
     @media (prefers-color-scheme: light) {
       html, body {
@@ -234,7 +221,7 @@ export function frameToHtmlDocument(frame: CapturedFrame, options: ToHtmlOptions
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" href="/favicon-dark.png" media="(prefers-color-scheme: dark)">
     <link rel="icon" href="/favicon-light.png" media="(prefers-color-scheme: light)">
-    <link rel="icon" href="/favicon-dark.png">${ogTags}
+    <link rel="icon" href="/favicon-dark.png">
     <style>
     @font-face {
       font-family: 'JetBrains Mono Nerd';
@@ -246,7 +233,7 @@ export function frameToHtmlDocument(frame: CapturedFrame, options: ToHtmlOptions
     </style>
     <title>${escapeHtml(title)}</title>
     <style>
-    /* Tailwind-style global defaults (safe for agentation widget) */
+    /* Tailwind-style global defaults */
     *, ::before, ::after {
       box-sizing: border-box;
       border-width: 0;
@@ -274,10 +261,7 @@ export function frameToHtmlDocument(frame: CapturedFrame, options: ToHtmlOptions
       display: block;
       max-width: 100%;
     }
-    /*
-     * Diff content styles scoped to #content so they don't interfere
-     * with the agentation widget which lives outside #content.
-     */
+    /* Diff content styles scoped to #content. */
     #content {
       width: fit-content;
       margin: 0 auto;
