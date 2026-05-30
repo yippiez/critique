@@ -41,6 +41,14 @@ interface TreeNodeLineProps {
   onSelect?: () => void
 }
 
+// A file-row text span that never starts a selection, so a press on the row
+// navigates (see onMouseDown below) instead of selecting the filename. opentui
+// begins a selection on the hit-tested renderable before dispatching the click,
+// and `selectable` isn't a valid prop on the row <box>, so it must live on each span.
+const RowText: React.FC<{ fg: string; children: React.ReactNode }> = ({ fg, children }) => (
+  <text selectable={false} fg={fg}>{children}</text>
+)
+
 /**
  * Render a single tree node line with proper colors
  */
@@ -69,15 +77,20 @@ const TreeNodeLine: React.FC<TreeNodeLineProps> = ({
         }}
         onMouseMove={() => setIsHovered(true)}
         onMouseOut={() => setIsHovered(false)}
-        // onMouseDown={onSelect} // disabled: conflicts with copy selection
+        // Pressing on a filename navigates to that file in the diff. mousedown
+        // (not mouseup) is used because opentui's selection capture swallows the
+        // line's mouseup after a press. The row is marked non-selectable so the
+        // click navigates without also starting a text selection (opentui begins
+        // a selection on the hit-tested renderable before dispatching the click).
+        onMouseDown={onSelect}
       >
-        <text fg={mutedColor}>{node.prefix}{node.connector}</text>
-        <text fg={pathColor}>{node.displayPath}</text>
-        <text fg={mutedColor}> (</text>
-        {hasAdditions && <text fg={addColor}>+{node.additions}</text>}
-        {hasAdditions && hasDeletions && <text fg={mutedColor}>,</text>}
-        {hasDeletions && <text fg={delColor}>-{node.deletions}</text>}
-        <text fg={mutedColor}>)</text>
+        <RowText fg={mutedColor}>{node.prefix}{node.connector}</RowText>
+        <RowText fg={pathColor}>{node.displayPath}</RowText>
+        <RowText fg={mutedColor}> (</RowText>
+        {hasAdditions && <RowText fg={addColor}>+{node.additions}</RowText>}
+        {hasAdditions && hasDeletions && <RowText fg={mutedColor}>,</RowText>}
+        {hasDeletions && <RowText fg={delColor}>-{node.deletions}</RowText>}
+        <RowText fg={mutedColor}>)</RowText>
       </box>
     )
   }

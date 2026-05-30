@@ -1500,6 +1500,12 @@ export interface AppProps {
   parsedFiles: ParsedFile[];
 }
 
+// Rows reserved for the footer + outer padding, subtracted from the terminal
+// height when sizing the bottom scroll spacer. Fallback used before the renderer
+// reports its height.
+const FOOTER_RESERVED_ROWS = 4;
+const FALLBACK_TERMINAL_ROWS = 24;
+
 export function App({ parsedFiles }: AppProps): React.ReactElement {
   const { width: initialWidth } = useTerminalDimensions();
   const [width, setWidth] = React.useState(initialWidth);
@@ -1752,6 +1758,16 @@ export function App({ parsedFiles }: AppProps): React.ReactElement {
           </box>
         );
       })}
+
+      {/* Bottom spacer so any file (including the last/only one) can be scrolled
+          to the very top of the viewport, even when content is shorter than the
+          screen. Sized to roughly one screen minus the footer/padding rows. */}
+      <box
+        style={{
+          height: Math.max(0, (renderer.height ?? FALLBACK_TERMINAL_ROWS) - FOOTER_RESERVED_ROWS),
+          flexShrink: 0,
+        }}
+      />
     </box>
   );
 
