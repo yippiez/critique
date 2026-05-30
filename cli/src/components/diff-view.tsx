@@ -4,7 +4,7 @@
 
 import * as React from "react"
 import { RGBA, SyntaxStyle } from "@opentuah/core"
-import { getSyntaxTheme, getResolvedTheme, rgbaToHex, rgbaToCss } from "../themes.js"
+import { getSyntaxTheme, getResolvedTheme, rgbaToHex } from "../themes.js"
 import { balanceDelimiters } from "../balance-delimiters.js"
 
 export interface DiffViewProps {
@@ -90,17 +90,17 @@ export function DiffView({ diff, view, filetype, themeName, wrapMode = "word" }:
   )
 
   // Convert RGBA to hex for diff component props
-  // Foreground colors use rgbaToHex; background colors use rgbaToCss so that
-  // transparent panels (e.g. the "system" theme) keep the terminal background
-  // showing through instead of collapsing to opaque black.
+  // Foreground colors use opaque rgbaToHex; background colors use the alpha-aware
+  // form so transparent panels (e.g. the "system" theme) keep the terminal
+  // background showing through instead of collapsing to opaque black.
   const colors = React.useMemo(() => ({
     text: rgbaToHex(resolvedTheme.text),
-    bgPanel: rgbaToCss(resolvedTheme.backgroundPanel),
-    diffAddedBg: rgbaToCss(resolvedTheme.diffAddedBg),
-    diffRemovedBg: rgbaToCss(resolvedTheme.diffRemovedBg),
+    bgPanel: rgbaToHex(resolvedTheme.backgroundPanel, { alpha: true }),
+    diffAddedBg: rgbaToHex(resolvedTheme.diffAddedBg, { alpha: true }),
+    diffRemovedBg: rgbaToHex(resolvedTheme.diffRemovedBg, { alpha: true }),
     diffLineNumber: rgbaToHex(resolvedTheme.diffLineNumber),
-    diffAddedLineNumberBg: rgbaToCss(resolvedTheme.diffAddedLineNumberBg),
-    diffRemovedLineNumberBg: rgbaToCss(resolvedTheme.diffRemovedLineNumberBg),
+    diffAddedLineNumberBg: rgbaToHex(resolvedTheme.diffAddedLineNumberBg, { alpha: true }),
+    diffRemovedLineNumberBg: rgbaToHex(resolvedTheme.diffRemovedLineNumberBg, { alpha: true }),
   }), [resolvedTheme])
 
   // Inline (word-level) highlight backgrounds. If the theme defines them
@@ -109,10 +109,10 @@ export function DiffView({ diff, view, filetype, themeName, wrapMode = "word" }:
   // (e.g. "system") pick a subtle highlight that doesn't wash out the text.
   const wordHighlights = React.useMemo(() => ({
     addedWordBg: resolvedTheme.diffAddedWordBg
-      ? rgbaToCss(resolvedTheme.diffAddedWordBg)
+      ? rgbaToHex(resolvedTheme.diffAddedWordBg, { alpha: true })
       : getWordHighlightBg(resolvedTheme.diffAddedBg),
     removedWordBg: resolvedTheme.diffRemovedWordBg
-      ? rgbaToCss(resolvedTheme.diffRemovedWordBg)
+      ? rgbaToHex(resolvedTheme.diffRemovedWordBg, { alpha: true })
       : getWordHighlightBg(resolvedTheme.diffRemovedBg),
   }), [resolvedTheme])
 

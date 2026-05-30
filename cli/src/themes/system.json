@@ -38,7 +38,7 @@
     "conceal": { "dark": "darkMuted", "light": "lightMuted" },
 
     "background": { "dark": "transparent", "light": "transparent" },
-    "backgroundPanel": { "dark": "transparent", "light": "transparent" },
+    "backgroundPanel": { "dark": "#0e1116cc", "light": "#f5f5f5e6" },
     "backgroundElement": { "dark": "transparent", "light": "transparent" },
 
     "border": { "dark": "darkMuted", "light": "lightMuted" },

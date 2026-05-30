@@ -341,21 +341,17 @@ export const themeNames = Object.keys(THEME_FILES).sort();
 
 export const defaultThemeName = "github";
 
-// Convert RGBA to an opentui-accepted color string while preserving transparency.
-// Unlike rgbaToHex, this keeps alpha: fully-transparent -> "transparent" (terminal
-// default background shows through), partial alpha -> 8-digit hex, opaque -> "#rrggbb".
-export function rgbaToCss(rgba: RGBA): string {
-  if (rgba.a <= 0) return "transparent";
-  const hex = rgbaToHex(rgba);
-  if (rgba.a >= 1) return hex;
-  const a = Math.round(rgba.a * 255)
-    .toString(16)
-    .padStart(2, "0");
-  return hex + a;
-}
-
-// Helper to convert RGBA to hex string
-export function rgbaToHex(rgba: RGBA): string {
+// Convert RGBA to a color string.
+//
+// By default (and for every foreground/export/overlay caller) it returns an
+// opaque `#rrggbb`, dropping alpha — concrete colors that PDFKit, image libs and
+// dropdown overlays require.
+//
+// Pass `{ alpha: true }` for TUI backgrounds that should respect transparency:
+// fully-transparent -> "transparent" (terminal/desktop shows through), partial
+// alpha -> 8-digit `#rrggbbaa`, opaque -> `#rrggbb`. Used by the diff view so the
+// "system" theme's transparent panels and translucent tints render correctly.
+export function rgbaToHex(rgba: RGBA, opts?: { alpha?: boolean }): string {
   const r = Math.round(rgba.r * 255)
     .toString(16)
     .padStart(2, "0");
@@ -365,5 +361,12 @@ export function rgbaToHex(rgba: RGBA): string {
   const b = Math.round(rgba.b * 255)
     .toString(16)
     .padStart(2, "0");
-  return `#${r}${g}${b}`;
+
+  if (!opts?.alpha) return `#${r}${g}${b}`;
+  if (rgba.a <= 0) return "transparent";
+  if (rgba.a >= 1) return `#${r}${g}${b}`;
+  const a = Math.round(rgba.a * 255)
+    .toString(16)
+    .padStart(2, "0");
+  return `#${r}${g}${b}${a}`;
 }
