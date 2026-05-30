@@ -56,6 +56,10 @@ export interface ResolvedTheme {
   diffAddedLineNumberBg: RGBA;
   diffRemovedLineNumberBg: RGBA;
   diffLineNumber: RGBA;
+  // Optional explicit inline word-highlight backgrounds. When undefined,
+  // DiffView derives them by brightening the diff line backgrounds.
+  diffAddedWordBg?: RGBA;
+  diffRemovedWordBg?: RGBA;
   // Background
   background: RGBA;
   backgroundPanel: RGBA;
@@ -118,6 +122,7 @@ const THEME_FILES: Record<string, string> = {
   rosepine: "rosepine.json",
   solarized: "solarized.json",
   synthwave84: "synthwave84.json",
+  system: "system.json",
   tokyonight: "tokyonight.json",
   vercel: "vercel.json",
   vesper: "vesper.json",
@@ -224,6 +229,10 @@ function resolveTheme(
       t.diffRemovedLineNumberBg ?? "#3a1e1e",
     ),
     diffLineNumber: resolveColor(t.diffLineNumber ?? fallbackGray),
+    diffAddedWordBg:
+      t.diffAddedWordBg !== undefined ? resolveColor(t.diffAddedWordBg) : undefined,
+    diffRemovedWordBg:
+      t.diffRemovedWordBg !== undefined ? resolveColor(t.diffRemovedWordBg) : undefined,
     background: resolveColor(t.background ?? fallbackBg),
     backgroundPanel: resolveColor(t.backgroundPanel ?? fallbackBg),
     // Markdown colors - fallback to text/syntax colors if not defined
@@ -331,6 +340,19 @@ export function getSyntaxTheme(
 export const themeNames = Object.keys(THEME_FILES).sort();
 
 export const defaultThemeName = "github";
+
+// Convert RGBA to an opentui-accepted color string while preserving transparency.
+// Unlike rgbaToHex, this keeps alpha: fully-transparent -> "transparent" (terminal
+// default background shows through), partial alpha -> 8-digit hex, opaque -> "#rrggbb".
+export function rgbaToCss(rgba: RGBA): string {
+  if (rgba.a <= 0) return "transparent";
+  const hex = rgbaToHex(rgba);
+  if (rgba.a >= 1) return hex;
+  const a = Math.round(rgba.a * 255)
+    .toString(16)
+    .padStart(2, "0");
+  return hex + a;
+}
 
 // Helper to convert RGBA to hex string
 export function rgbaToHex(rgba: RGBA): string {

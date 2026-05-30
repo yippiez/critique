@@ -4,7 +4,7 @@
 
 import * as React from "react"
 import { RGBA, SyntaxStyle } from "@opentuah/core"
-import { getSyntaxTheme, getResolvedTheme, rgbaToHex } from "../themes.js"
+import { getSyntaxTheme, getResolvedTheme, rgbaToHex, rgbaToCss } from "../themes.js"
 import { balanceDelimiters } from "../balance-delimiters.js"
 
 export interface DiffViewProps {
@@ -90,19 +90,30 @@ export function DiffView({ diff, view, filetype, themeName, wrapMode = "word" }:
   )
 
   // Convert RGBA to hex for diff component props
+  // Foreground colors use rgbaToHex; background colors use rgbaToCss so that
+  // transparent panels (e.g. the "system" theme) keep the terminal background
+  // showing through instead of collapsing to opaque black.
   const colors = React.useMemo(() => ({
     text: rgbaToHex(resolvedTheme.text),
-    bgPanel: rgbaToHex(resolvedTheme.backgroundPanel),
-    diffAddedBg: rgbaToHex(resolvedTheme.diffAddedBg),
-    diffRemovedBg: rgbaToHex(resolvedTheme.diffRemovedBg),
+    bgPanel: rgbaToCss(resolvedTheme.backgroundPanel),
+    diffAddedBg: rgbaToCss(resolvedTheme.diffAddedBg),
+    diffRemovedBg: rgbaToCss(resolvedTheme.diffRemovedBg),
     diffLineNumber: rgbaToHex(resolvedTheme.diffLineNumber),
-    diffAddedLineNumberBg: rgbaToHex(resolvedTheme.diffAddedLineNumberBg),
-    diffRemovedLineNumberBg: rgbaToHex(resolvedTheme.diffRemovedLineNumberBg),
+    diffAddedLineNumberBg: rgbaToCss(resolvedTheme.diffAddedLineNumberBg),
+    diffRemovedLineNumberBg: rgbaToCss(resolvedTheme.diffRemovedLineNumberBg),
   }), [resolvedTheme])
 
+  // Inline (word-level) highlight backgrounds. If the theme defines them
+  // explicitly, use those; otherwise derive a brighter shade from the line
+  // background. The explicit override lets transparent/low-contrast themes
+  // (e.g. "system") pick a subtle highlight that doesn't wash out the text.
   const wordHighlights = React.useMemo(() => ({
-    addedWordBg: getWordHighlightBg(resolvedTheme.diffAddedBg),
-    removedWordBg: getWordHighlightBg(resolvedTheme.diffRemovedBg),
+    addedWordBg: resolvedTheme.diffAddedWordBg
+      ? rgbaToCss(resolvedTheme.diffAddedWordBg)
+      : getWordHighlightBg(resolvedTheme.diffAddedBg),
+    removedWordBg: resolvedTheme.diffRemovedWordBg
+      ? rgbaToCss(resolvedTheme.diffRemovedWordBg)
+      : getWordHighlightBg(resolvedTheme.diffRemovedBg),
   }), [resolvedTheme])
 
   return (
