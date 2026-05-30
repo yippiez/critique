@@ -54,8 +54,8 @@ export function ReviewApp({
   const [showThemePicker, setShowThemePicker] = React.useState(false)
   const [previewTheme, setPreviewTheme] = React.useState<string | null>(null)
 
-  // Copy selection to clipboard on mouse release
-  const { onMouseUp } = useCopySelection()
+  // Copy selection to clipboard a moment after the selection settles.
+  const { onMouseUp, onMouseDown } = useCopySelection()
 
   // Refs for vim-style scroll navigation
   const scrollboxRef = React.useRef<ScrollBoxRenderable | null>(null)
@@ -166,6 +166,7 @@ export function ReviewApp({
     return (
       <box
         onMouseUp={onMouseUp}
+        onMouseDown={onMouseDown}
         style={{
           flexDirection: "column",
           height: "100%",
@@ -216,7 +217,7 @@ export function ReviewApp({
   }
 
   return (
-    <box onMouseUp={onMouseUp} style={{ flexGrow: 1 }}>
+    <box onMouseUp={onMouseUp} onMouseDown={onMouseDown} style={{ flexGrow: 1 }}>
       <ReviewAppView
         hunks={hunks}
         reviewData={reviewData}

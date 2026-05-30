@@ -1516,8 +1516,22 @@ export function App({ parsedFiles }: AppProps): React.ReactElement {
   // Ref for double-tap detection (gg)
   const lastKeyRef = React.useRef<{ key: string; time: number } | null>(null);
 
-  // Copy selection to clipboard on mouse release
-  const { onMouseUp } = useCopySelection();
+  // Copy selection to clipboard as soon as the selection settles, then
+  // deselect and surface a confirmation toast in the footer.
+  const [copyToast, setCopyToast] = React.useState<string | null>(null);
+  const copyToastTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showCopyToast = React.useCallback(() => {
+    setCopyToast("Copied to clipboard");
+    if (copyToastTimerRef.current) clearTimeout(copyToastTimerRef.current);
+    copyToastTimerRef.current = setTimeout(() => setCopyToast(null), 1200);
+  }, []);
+  React.useEffect(
+    () => () => {
+      if (copyToastTimerRef.current) clearTimeout(copyToastTimerRef.current);
+    },
+    [],
+  );
+  const { onMouseUp, onMouseDown } = useCopySelection({ onCopied: showCopyToast });
 
   useOnResize(
     React.useCallback((newWidth: number) => {
@@ -1604,6 +1618,7 @@ export function App({ parsedFiles }: AppProps): React.ReactElement {
     return (
       <box
         onMouseUp={onMouseUp}
+        onMouseDown={onMouseDown}
         style={{
           padding: 1,
           backgroundColor: getResolvedTheme(themeName).background,
@@ -1743,6 +1758,8 @@ export function App({ parsedFiles }: AppProps): React.ReactElement {
   // Always render the same structure - scrollbox is never remounted
   return (
     <box
+      onMouseUp={onMouseUp}
+      onMouseDown={onMouseDown}
       style={{
         flexDirection: "column",
         height: "100%",
@@ -1831,9 +1848,15 @@ export function App({ parsedFiles }: AppProps): React.ReactElement {
           <text fg={textColor}>t</text>
           <text fg={mutedColor}> theme</text>
           <box flexGrow={1} />
-          <text fg={mutedColor}>run with </text>
-          <text fg={textColor}><b>--web</b></text>
-          <text fg={mutedColor}> to share & collaborate</text>
+          {copyToast ? (
+            <text fg={mutedColor}>{copyToast}</text>
+          ) : (
+            <>
+              <text fg={mutedColor}>run with </text>
+              <text fg={textColor}><b>--web</b></text>
+              <text fg={mutedColor}> to share & collaborate</text>
+            </>
+          )}
         </box>
       )}
     </box>
