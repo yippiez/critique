@@ -26,7 +26,6 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.13.1",
     "@clack/prompts": "1.0.0-alpha.9",
     "@opentuah/core": "0.1.97",
     "@opentuah/react": "0.1.97",

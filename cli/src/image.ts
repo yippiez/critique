@@ -1,6 +1,6 @@
 // Critique-specific image rendering.
 // Uses opentui-image.ts for generic frame-to-image conversion.
-// Adds theme resolution and diff/review-specific rendering.
+// Adds theme resolution and diff-specific rendering.
 
 import type { CapturedFrame } from "@opentuah/core"
 import { getResolvedTheme, rgbaToHex } from "./themes.js"
@@ -133,44 +133,6 @@ export async function renderDiffToImages(
 
   // Render diff to captured frame using opentui test renderer
   const frame = await renderDiffToFrame(diffContent, {
-    cols,
-    maxRows,
-    themeName,
-  })
-
-  // Convert frame to images
-  return renderFrameToImages(frame, {
-    ...options,
-    themeName,
-  })
-}
-
-/**
- * Render a review to images.
- * Uses opentui test renderer to capture the review view, then converts to images.
- *
- * @param options - Review data and rendering options
- * @returns Promise with image buffers and saved file paths
- */
-export async function renderReviewToImages(
-  options: {
-    hunks: any[]
-    reviewData: any
-    cols?: number
-    maxRows?: number
-    themeName?: string
-  } & RenderToImagesOptions
-): Promise<RenderResult> {
-  const { renderReviewToFrame } = await import("./web-utils.js")
-
-  const cols = options.cols ?? 120
-  const maxRows = options.maxRows ?? 10000
-  const themeName = options.themeName ?? "tokyonight"
-
-  // Render review to captured frame using opentui test renderer
-  const frame = await renderReviewToFrame({
-    hunks: options.hunks,
-    reviewData: options.reviewData,
     cols,
     maxRows,
     themeName,

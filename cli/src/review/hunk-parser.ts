@@ -1,6 +1,6 @@
-// Git diff parser that creates indexed hunks for AI review processing.
-// Supports hunk splitting for progressive disclosure, coverage tracking,
-// and generates context XML for AI prompts with cat -n style line numbers.
+// Git diff parser that creates indexed hunks with stable IDs for selective staging.
+// Supports hunk splitting, coverage tracking, and patch combination,
+// plus context XML generation with cat -n style line numbers.
 
 import type { IndexedHunk, HunkCoverage, ReviewCoverage, UncoveredPortion, ReviewGroup } from "./types.js"
 import { IGNORED_FILES, stripSubmoduleHeaders, parseGitDiffFiles } from "../diff-utils.js"

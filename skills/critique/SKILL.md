@@ -1,49 +1,16 @@
 ---
 name: critique
 description: >
-  Git diff viewer. Renders diffs as web pages, images, and PDFs
-  with syntax highlighting. Use this skill when working with critique for showing
-  diffs, generating diff URLs, or selective hunk staging.
+  Git diff viewer. Renders diffs in a terminal TUI and exports them as
+  images and PDFs with syntax highlighting. Use this skill when working with
+  critique for showing diffs, exporting them, or selective hunk staging.
 ---
 
 # critique
 
-Git diff viewer that renders diffs as **web pages**, **images**, and **PDFs** with syntax highlighting.
-
-Agents running in headless environments (kimaki on Discord, openclaw on Slack/Telegram) have no terminal to show diffs. critique uploads diffs to critique.work and returns a shareable URL you can paste into chat. Users click the link and see a syntax-highlighted split-view diff with mobile support and dark/light mode — no install needed.
+Git diff viewer that renders diffs in a terminal TUI and exports them as **images** and **PDFs** with syntax highlighting.
 
 **Always run `critique --help` first** to see the latest flags and commands. The help output is the source of truth.
-
-## Web — shareable diff URLs
-
-Always pass a title to describe what the diff contains.
-
-```bash
-# Working tree changes
-critique --web "Add retry logic to database connections"
-
-# Staged changes
-critique --staged --web "Refactor auth middleware"
-
-# Branch diff (three-dot: changes since diverging from base)
-critique main...HEAD --web "Feature branch changes"
-critique main...feature-branch --web "Compare branches"
-
-# Last N commits
-critique HEAD~3 --web "Recent changes"
-
-# Specific commit
-critique --commit HEAD --web "Latest commit"
-critique --commit abc1234 --web "Fix race condition"
-
-# Filter to specific files
-critique --web "API changes" --filter "src/api.ts" --filter "src/utils.ts"
-
-# JSON output for programmatic use (returns {url, id, files})
-critique --web "Deploy changes" --json
-```
-
-Share the returned URL with the user so they can see the diff.
 
 ## PDF
 
@@ -88,25 +55,7 @@ critique hunks add 'file:@-10,6+10,7'       # stage only your hunks
 git commit -m "your changes"                 # commit separately
 ```
 
-## Raw patch access
-
-Every `--web` upload also stores the raw unified diff. Append `.patch` to any critique URL to get it:
-
-```bash
-# View the raw patch
-curl https://critique.work/v/<id>.patch
-
-# Apply the patch to current repo
-curl -s https://critique.work/v/<id>.patch | git apply
-
-# Reverse the patch (undo the changes)
-curl -s https://critique.work/v/<id>.patch | git apply --reverse
-```
-
-Useful when an agent shares a critique URL and you want to programmatically apply or revert those changes.
-
 ## Notes
 
 - Requires **Bun** — use `bunx critique` or global `critique`
 - Lock files and diffs >6000 lines are auto-hidden
-- `--web` URLs expire after 7 days (content-hashed, same diff = same URL)

@@ -1,5 +1,5 @@
-// Local diff/review rendering utilities.
-// Renders diff and review components using the opentui test renderer, then converts the
+// Local diff rendering utilities.
+// Renders diff components using the opentui test renderer, then converts the
 // captured frames to HTML for local image/PDF export.
 
 import { exec } from "child_process"
@@ -11,7 +11,6 @@ import { getResolvedTheme, rgbaToHex } from "./themes.js"
 import { buildDirectoryTree } from "./directory-tree.js"
 import type { BoxRenderable, CapturedFrame, CapturedLine, RootRenderable, CliRenderer } from "@opentuah/core"
 import { DiffRenderable } from "@opentuah/core"
-import type { IndexedHunk, ReviewYaml } from "./review/types.js"
 
 const execAsync = promisify(exec)
 
@@ -451,113 +450,6 @@ export function buildAnchorMap(
   }
 
   return anchors
-}
-
-export interface ReviewRenderOptions extends CaptureOptions {
-  hunks: IndexedHunk[]
-  reviewData: ReviewYaml | null
-}
-
-/**
- * Render review to CapturedFrame using opentui test renderer.
- * Uses content-fitting: renders with initial height, measures actual content,
- * then resizes to exact content height to avoid wasting memory.
- */
-export async function renderReviewToFrame(
-  options: ReviewRenderOptions
-): Promise<CapturedFrame> {
-  const { createTestRenderer } = await import("@opentuah/core/testing")
-  const { createRoot } = await import("@opentuah/react")
-  const { getTreeSitterClient } = await import("@opentuah/core")
-  
-  // Pre-initialize TreeSitter client to ensure syntax highlighting works
-  const tsClient = getTreeSitterClient()
-  await tsClient.initialize()
-  
-  const { ReviewAppView } = await import("./review/review-app.js")
-  const { themeNames, defaultThemeName } = await import("./themes.js")
-
-  const themeName = options.themeName && themeNames.includes(options.themeName)
-    ? options.themeName
-    : defaultThemeName
-
-  const theme = getResolvedTheme(themeName)
-  const webBg = theme.background
-
-  // Content-fitting: start small, double if clipped, shrink to fit
-  let currentHeight = 100
-
-  const { renderer, renderOnce, resize } = await createTestRenderer({
-    width: options.cols,
-    height: currentHeight,
-  })
-
-  // Create the review view component
-  // Pass renderer to enable custom renderNode (wrapMode: "none" for diagrams)
-  // NOTE: No height: "100%" - let content determine its natural height
-  function ReviewWebApp() {
-    return (
-      <box
-        style={{
-          flexDirection: "column",
-          backgroundColor: webBg,
-        }}
-      >
-        <ReviewAppView
-          hunks={options.hunks}
-          reviewData={options.reviewData}
-          isGenerating={false}
-          themeName={themeName}
-          width={options.cols}
-          showFooter={false}
-          renderer={renderer}
-        />
-      </box>
-    )
-  }
-
-  // Mount and do initial render
-  createRoot(renderer).render(<ReviewWebApp />)
-  await renderOnce()
-  
-  // Wait for React to mount components (may take a few render cycles)
-  let contentHeight = getContentHeight(renderer.root)
-  while (contentHeight === 0) {
-    await new Promise(resolve => setTimeout(resolve, 10))
-    await renderOnce()
-    contentHeight = getContentHeight(renderer.root)
-  }
-  
-  // If content height == buffer height, content is clipped - double until it fits
-  while (contentHeight >= currentHeight && currentHeight < options.maxRows) {
-    currentHeight = Math.min(currentHeight * 2, options.maxRows)
-    resize(options.cols, currentHeight)
-    await renderOnce()
-    contentHeight = getContentHeight(renderer.root)
-  }
-  
-  // Shrink to exact content height (remove empty space at bottom)
-  const finalHeight = Math.min(Math.max(contentHeight, 1), options.maxRows)
-  if (finalHeight < renderer.height) {
-    resize(options.cols, finalHeight)
-    await renderOnce()
-  }
-  
-  // Wait for tree-sitter highlighting + render stabilization
-  await waitForHighlightAndRenderStabilization(renderer, renderOnce, options.stabilizeMs ?? 2000)
-
-  // Capture the final frame
-  const buffer = renderer.currentRenderBuffer
-  const cursorState = renderer.getCursorState()
-  const frame: CapturedFrame = {
-    cols: buffer.width,
-    rows: buffer.height,
-    cursor: [cursorState.x, cursorState.y],
-    lines: buffer.getSpanLines(),
-  }
-  
-  renderer.destroy()
-  return frame
 }
 
 /**

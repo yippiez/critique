@@ -6,15 +6,15 @@ When you have background coding agents working on your codebase — tools like
 or any other agent-based workflow — you often want to review their changes without
 sitting at a computer.
 
-Critique can generate PDFs from diffs and AI-powered reviews with full syntax highlighting
-and diff formatting. Send the PDF to a Kindle or Boox e-reader and review agent work
+Critique can generate PDFs from diffs with full syntax highlighting and diff
+formatting. Send the PDF to a Kindle or Boox e-reader and review the work
 from your couch, bed, or commute.
 
 The typical flow:
 1. An agent makes changes to your codebase (via kimaki, clawdbot, Claude Code, etc.)
-2. You run `critique review --pdf` to generate an AI-explained review as a PDF
+2. You run `critique main --pdf` to generate the diff as a PDF
 3. You send the PDF to your e-reader (email, cloud sync, or drag-and-drop)
-4. You unlock the device and read the review with syntax-highlighted diffs and explanations
+4. You unlock the device and read the syntax-highlighted diff
 
 ## Generate a PDF
 
@@ -24,13 +24,8 @@ critique --pdf
 critique --pdf my-diff.pdf
 critique main --pdf
 
-# AI review as PDF
-critique review --pdf
-critique review main --pdf --agent claude
-
 # Auto-open after generating
 critique --pdf --open
-critique review --pdf --open
 ```
 
 The PDF is saved to `/tmp/` by default. Pass a filename to control the output path.
@@ -54,13 +49,13 @@ bun install -g zele
 zele login
 
 # Send the PDF to your Kindle
-critique review main --pdf /tmp/review.pdf
+critique main --pdf /tmp/diff.pdf
 
 zele mail send \
   --to yourname@kindle.com \
   --subject "convert" \
-  --body "Agent review" \
-  --attach /tmp/review.pdf
+  --body "Diff review" \
+  --attach /tmp/diff.pdf
 ```
 
 Put **"convert"** in the subject to reflow text with adjustable fonts. Without it,
@@ -87,13 +82,13 @@ internet required — just same Wi-Fi. Self-hosted and end-to-end encrypted.
 1. Install Syncthing on your computer (`brew install syncthing` on macOS)
 2. Install Syncthing on the Boox from the Boox Play Store (search "Syncthing")
 3. Exchange device IDs between the two
-4. Create a shared folder (e.g. `~/Syncthing/boox-reviews` ↔ `/sdcard/Syncthing/boox-reviews`)
+4. Create a shared folder (e.g. `~/Syncthing/boox-diffs` ↔ `/sdcard/Syncthing/boox-diffs`)
 5. Disable battery optimization for Syncthing on the Boox so it syncs in the background
 
 **Then forever after:**
 
 ```bash
-critique review main --pdf ~/Syncthing/boox-reviews/review.pdf
+critique main --pdf ~/Syncthing/boox-diffs/diff.pdf
 # done — appears on the Boox automatically
 ```
 
@@ -103,7 +98,7 @@ Set up cloud sync on your Boox (Settings → Accounts → Google Drive or Dropbo
 then save the PDF directly to the synced folder:
 
 ```bash
-critique review main --pdf ~/Google\ Drive/critique-reviews/review.pdf
+critique main --pdf ~/Google\ Drive/critique-diffs/diff.pdf
 ```
 
 Same idea as Syncthing but goes through the cloud instead of local network.
@@ -115,12 +110,12 @@ Requires either a USB cable or knowing the device IP.
 
 ```bash
 # USB
-adb push /tmp/review.pdf /sdcard/Download/
+adb push /tmp/diff.pdf /sdcard/Download/
 
 # Wi-Fi (Android 11+: pair once via Settings → Developer Options → Wireless debugging)
 adb pair 192.168.1.x:45678    # enter pairing code
 adb connect 192.168.1.x:34567
-adb push /tmp/review.pdf /sdcard/Download/
+adb push /tmp/diff.pdf /sdcard/Download/
 ```
 
 ### Send2Boox (manual, works remotely)
@@ -131,60 +126,43 @@ adb push /tmp/review.pdf /sdcard/Download/
 
 ## Scripted Workflows
 
-One-liner to generate a review and email to Kindle:
+One-liner to generate a diff PDF and email to Kindle:
 
 ```bash
-critique review main --pdf /tmp/review.pdf && \
+critique main --pdf /tmp/diff.pdf && \
   zele mail send \
     --to yourname@kindle.com \
     --subject "convert" \
-    --body "Agent review" \
-    --attach /tmp/review.pdf
+    --body "Diff review" \
+    --attach /tmp/diff.pdf
 ```
 
 With swaks (works today):
 
 ```bash
-critique review main --pdf /tmp/review.pdf && \
+critique main --pdf /tmp/diff.pdf && \
   swaks --to yourname@kindle.com \
         --from you@gmail.com \
         --server smtp.gmail.com:587 --tls \
         --auth-user you@gmail.com \
         --auth-password "your-app-password" \
         --header "Subject: convert" \
-        --body "Agent review" \
-        --attach /tmp/review.pdf
+        --body "Diff review" \
+        --attach /tmp/diff.pdf
 ```
 
 For Boox with Syncthing:
 
 ```bash
-critique review main --pdf ~/Syncthing/boox-reviews/review-$(date +%Y%m%d).pdf
+critique main --pdf ~/Syncthing/boox-diffs/diff-$(date +%Y%m%d).pdf
 ```
-
-## Web Preview Alternative
-
-If you prefer reading in a browser on your e-reader instead of PDF:
-
-```bash
-critique review main --web
-# Outputs a URL like https://critique.work/v/abc123
-```
-
-Open that URL in the Boox browser or Kindle's experimental browser. The web
-preview auto-detects mobile viewports and serves a unified diff view optimized
-for smaller screens.
 
 ## Quick Reference
 
 | What | Command | Programmatic? |
 |------|---------|---------------|
 | Diff → PDF | `critique --pdf` | Yes |
-| Review → PDF | `critique review --pdf` | Yes |
 | Send to Kindle | `zele mail send --to ...@kindle.com --attach file.pdf` | Yes |
 | Send to Boox | Save to Syncthing shared folder | Yes |
-| Diff → web link | `critique --web` | Yes |
-| Review → web link | `critique review --web` | Yes |
 | Specific commit | `critique --commit abc123 --pdf` | Yes |
 | Branch comparison | `critique main feature --pdf` | Yes |
-| With session context | `critique review --session <id> --pdf` | Yes |

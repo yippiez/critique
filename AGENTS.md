@@ -29,11 +29,6 @@ if the commit hash url does not work it means it is still building. ignore the p
 
 NEVER run the interactive TUI (e.g. `bun run src/cli.tsx` without arguments). It will hang. Instead ask the user to run it.
 
-The `web` command is safe to run - it generates HTML and exits:
-```bash
-bun run src/cli.tsx web
-```
-
 NEVER use `tsc --noEmit` in this repo. Always run emitting builds so `cli/dist` stays updated.
 
 after every code change, run `bun run build` from `cli/` to make sure it compiles. fix any type errors before moving on.
@@ -97,45 +92,13 @@ After completing a fix or feature, add a `.changeset/*.md` file at the repo root
 
 - do not consider local state truthful when interacting with server. when interacting with the server with rpc or api calls never use state from the render function as input for the api call. this state can easily become stale or not get updated in the closure context. instead prefer using zustand `useStore.getState().stateValue`. notice that useLoaderData or useParams should be fine in this case.
 
-## worker dependencies
-
-worker code (worker.tsx, agentation-api.ts, comments-server) is bundled by wrangler at deploy time. all their dependencies must be **devDependencies** in cli/package.json, not production dependencies. wrangler bundles everything into the worker output, so they don't need to be installed at runtime. production dependencies are only for the CLI tool itself (what users install with `bun install -g critique`).
-
-this includes: `@critique.work/server`, `agents`, `hono`, `stripe`, `resend`, `@critique.work/agentation`, `preact`, and all `@cloudflare/*` types.
-
-## preview worker
-
-when working on the worker, agentation widget, or HTML page styles, use the preview worker to test changes before deploying to production.
-
-deploy the preview worker from the `cli/` directory:
-
-```bash
-bun run worker:deploy    # deploys to preview.critique.work
-```
-
-to upload diffs to the preview worker instead of production, set `CRITIQUE_WORKER_URL`:
-
-```bash
-CRITIQUE_WORKER_URL=https://preview.critique.work bun run cli/src/cli.tsx web --filter "cli/src/ansi-html.ts"
-```
-
-this uploads to `preview.critique.work` so you can test HTML/CSS/widget changes without affecting production. use this whenever changing `ansi-html.ts`, `web-utils.tsx`, `worker.tsx`, or `comments-client/`.
-
-production deploy (critique.work):
-
-```bash
-bun run worker:deploy:prod
-```
-
 ## cli
 
 the main cli functionality is in src/cli.tsx
 
-the main command shows the git diff in a tui. the web command uploads the terminal output to html to domain critique.work
+the main command shows the git diff in a tui. it also supports exporting the diff as a PDF (`--pdf`) or image (`--image`).
 
-the command review helps the user review agents diffs, reordering and splitting diff hunks to create a progressive disclosure document with explanations and diagrams. it also supports using --web to upload the result to critique.work
-
-this command takes a long time to run, because it uses ACP to generate the result using an LLM. so to test styles changes we will usually modify scripts/preview-review.tsx instead, which let you preview how the cli looks like. and passing --web to that script to also preview how the website looks like
+the `hunks list` / `hunks add` commands assign stable IDs to diff hunks for selective staging.
 
 <!-- opensrc:start -->
 
