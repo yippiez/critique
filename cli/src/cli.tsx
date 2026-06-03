@@ -1026,7 +1026,15 @@ cli
     const cleanedDiff = stripSubmoduleHeaders(diffContent);
 
     // Check for empty diff (except for --watch mode which may get content later)
-    const shouldWatch = options.watch && !base && !head && !options.commit && !options.stdin;
+    // Watch re-runs git on an interval, so it only helps when the right-hand
+    // side of the diff can change underneath us: the working tree (default mode
+    // or a single base ref like `critique main`, used for branch review) or the
+    // index (--staged). Two fixed refs/commits never change, so skip those.
+    const comparesFixedRefs =
+      options.commit !== undefined ||
+      head !== undefined ||
+      (typeof base === "string" && base.includes(".."));
+    const shouldWatch = options.watch && !options.stdin && !comparesFixedRefs;
     if (!cleanedDiff.trim() && !shouldWatch) {
       console.log("No changes to display");
       process.exit(0);
