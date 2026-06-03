@@ -37,7 +37,6 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { create } from "zustand";
 import Dropdown from "./dropdown.js";
-import { debounce } from "./utils.js";
 import { DiffView, DirectoryTreeView } from "./components/index.js";
 import { logger } from "./logger.js";
 import {
@@ -64,14 +63,6 @@ import type { TreeFileInfo } from "./directory-tree.js";
 import packageJson from "../package.json" assert { type: "json" };
 
 
-// Lazy-load watcher only when --watch is used
-let watcherModule: typeof import("@parcel/watcher") | null = null;
-async function getWatcher() {
-  if (!watcherModule) {
-    watcherModule = await import("@parcel/watcher");
-  }
-  return watcherModule;
-}
 import {
   getSyntaxTheme,
   getResolvedTheme,
@@ -1172,37 +1163,15 @@ cli
           // Initial fetch for watch mode
           fetchDiff();
 
-          const cwd = process.cwd();
-
-          const debouncedFetch = debounce(() => {
+          // Refresh the diff on a fixed interval. This polls git instead of
+          // relying on filesystem events, which avoids inotify backends that
+          // silently deliver nothing on some setups (network mounts, etc).
+          const intervalId = setInterval(() => {
             fetchDiff();
-          }, 200);
-
-          let subscription:
-            | Awaited<ReturnType<typeof import("@parcel/watcher").subscribe>>
-            | undefined;
-
-          // Lazy-load watcher module only when watching
-          getWatcher().then((watcher) => {
-            watcher
-              .subscribe(cwd, (err, events) => {
-                if (err) {
-                  return;
-                }
-
-                if (events.length > 0) {
-                  debouncedFetch();
-                }
-              })
-              .then((sub) => {
-                subscription = sub;
-              });
-          });
+          }, 10_000);
 
           return () => {
-            if (subscription) {
-              subscription.unsubscribe();
-            }
+            clearInterval(intervalId);
           };
         }, []);
 
